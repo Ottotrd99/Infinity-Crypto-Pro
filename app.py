@@ -1,144 +1,193 @@
 import streamlit as st
 import ccxt
 import pandas as pd
-import plotly.graph_objects as go
+from streamlit_echarts import st_echarts
 
 # --- CONFIGURAÇÃO DE AMBIENTE ---
-st.set_page_config(page_title="INFINITY | TOP 10 PROFUNDO", layout="wide")
-
-# ==========================================
-#        SISTEMA DE LOGIN (GRATUITO)
-# ==========================================
-def check_password():
-    """Retorna True se o usuário inseriu a senha correta."""
-    def password_entered():
-        # --- ALTERE SEU LOGIN E SENHA AQUI ---
-        if st.session_state["username"] == "OttoTrader" and st.session_state["password"] == "MC=4e20$97":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Limpa a senha da memória
-            del st.session_state["username"]
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # Interface de Login
-        st.markdown("<h2 style='text-align:center; color:#9b51e0;'>🛡️ ACESSO RESTRITO</h2>", unsafe_allow_html=True)
-        col1, col2, col3 = st.columns([1,2,1])
-        with col2:
-            st.text_input("Usuário", key="username")
-            st.text_input("Senha", type="password", key="password")
-            st.button("Entrar no Sistema", on_click=password_entered)
-        if "password_correct" in st.session_state:
-            st.error("😕 Usuário ou senha incorretos")
-        return False
-    return True
-
-# Se o login falhar, o código para aqui e não mostra nada abaixo
-if not check_password():
-    st.stop()
-
-# ==========================================
-#        RESTO DO SEU CÓDIGO (LÓGICA)
-# ==========================================
+st.set_page_config(page_title="INFINITY CRYPTO PRO", layout="wide")
 
 st.markdown("""
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=JetBrains+Mono&display=swap');
     .stApp { background: #000000; }
-    .glass-panel { background: rgba(15, 15, 20, 0.95); border-radius: 12px; border: 1px solid #333; padding: 25px; }
-    .info-box { background: rgba(0, 255, 204, 0.05); border-left: 5px solid #00ffcc; padding: 15px; }
-    .stButton>button { background: #9b51e0; color: white; font-weight: bold; border-radius: 8px; }
+    
+    .header-container { text-align: center; padding: 20px; }
+    .infinity-logo {
+        font-size: 70px;
+        background: linear-gradient(90deg, #00ffcc, #9b51e0);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: bold;
+        filter: drop-shadow(0px 0px 15px rgba(0, 255, 204, 0.3));
+        line-height: 1;
+    }
+    .main-title {
+        font-family: 'Orbitron', sans-serif;
+        color: #ffffff; font-size: 24px; letter-spacing: 5px; margin-top: 5px;
+    }
+    
+    .glass-panel { background: rgba(10, 10, 15, 0.95); border-radius: 12px; border: 1px solid #222; padding: 15px; }
+    
+    .info-table-container {
+        margin-top: 15px;
+        background: #0a0a0a;
+        border-radius: 10px; border: 1px solid #333; padding: 15px;
+    }
+    .info-item { text-align: center; border-right: 1px solid #222; flex: 1; }
+    .info-label { font-family: 'Orbitron'; font-size: 10px; color: #666; margin-bottom: 5px; }
+    .info-value { font-family: 'JetBrains Mono'; font-size: 18px; color: #fff; font-weight: bold; }
     </style>
+    
+    <div class="header-container">
+        <div class="infinity-logo">∞</div>
+        <div class="main-title">INFINITY CRYPTO PRO</div>
+    </div>
     """, unsafe_allow_html=True)
 
 @st.cache_resource
 def get_exchange(): return ccxt.mexc()
 
-def fetch_data(symbol, timeframe='15m'):
+def fetch_data(symbol, timeframe, limit=1000):
     try:
-        bars = get_exchange().fetch_ohlcv(symbol, timeframe=timeframe, limit=120)
+        bars = get_exchange().fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
         df = pd.DataFrame(bars, columns=['ts', 'open', 'high', 'low', 'close', 'vol'])
+        df['ts_display'] = pd.to_datetime(df['ts'], unit='ms').dt.strftime('%H:%M')
         return df
     except: return pd.DataFrame()
 
-# --- LÓGICA DE SELEÇÃO TOP 10 (RANKING) ---
-def buscar_melhores_setups(tf):
+def buscar_setups():
     markets = get_exchange().fetch_markets()
     symbols = [m['symbol'] for m in markets if m['linear'] and m['quote'] == 'USDT'][:100]
     melhores = []
     
-    for s in symbols:
-        df = fetch_data(s, tf)
-        if df.empty: continue
+    p_bar = st.progress(0)
+    for i, s in enumerate(symbols):
+        p_bar.progress((i + 1) / 100)
+        df_h1 = fetch_data(s, '1h', limit=80)
+        if df_h1.empty: continue
+        last_p = df_h1['close'].iloc[-1]
+        topo = df_h1['high'].rolling(40).max().iloc[-1]
+        fundo = df_h1['low'].rolling(40).min().iloc[-1]
         
-        last_p = df['close'].iloc[-1]
-        poi_p = df['high'].rolling(40).max().iloc[-1]
-        dist = (poi_p - last_p) / last_p
-        
-        if 0.0005 < dist < 0.015:
-            score = 1 - dist
-            melhores.append({'symbol': s, 'poi': poi_p, 'score': score})
-            
-    return sorted(melhores, key=lambda x: x['score'], reverse=True)[:10]
+        if 0 < (topo - last_p) / last_p < 0.009:
+             melhores.append({'symbol': s, 'poi': topo, 'tipo': 'SUPPLY'})
+        elif 0 < (last_p - fundo) / last_p < 0.009:
+             melhores.append({'symbol': s, 'poi': fundo, 'tipo': 'DEMAND'})
+    p_bar.empty()
+    return melhores
 
-# --- UI PRINCIPAL ---
-st.markdown("<h1 style='text-align:center; color:#9b51e0;'>🛡️ INFINITY GENESIS: QUEBRA PROFUNDA</h1>", unsafe_allow_html=True)
+col_side, col_main = st.columns([1, 5])
 
-col1, col2 = st.columns([1, 3])
+with col_side:
+    st.markdown("<div class='glass-panel'>", unsafe_allow_html=True)
+    tf = st.selectbox("TEMPO:", ["1m", "5m", "15m"], index=1)
+    if st.button("⚡ SCANNER"):
+        st.session_state['setups'] = buscar_setups()
 
-with col1:
-    tf = st.selectbox("🕒 TIME FRAME:", ["1m", "3m", "5m", "15m"], index=2)
-    if st.button("⚡ ESCANEAR E FILTRAR TOP 10"):
-        st.session_state['top_10_setups'] = buscar_melhores_setups(tf)
+    if 'setups' in st.session_state and st.session_state['setups']:
+        opcoes = [x['symbol'] for x in st.session_state['setups']]
+        escolha = st.radio("ATIVOS:", opcoes)
+        # Busca o setup correto para o ativo selecionado
+        setup = next((item for item in st.session_state['setups'] if item["symbol"] == escolha), None)
+        if setup:
+            selecionado = setup['symbol']
+    st.markdown("</div>", unsafe_allow_html=True)
 
-if 'top_10_setups' in st.session_state:
-    with col1:
-        selecionado = st.radio("🎯 SELECIONE O ATIVO:", [x['symbol'] for x in st.session_state['top_10_setups']])
-    
-    with col2:
+if 'setups' in st.session_state and 'selecionado' in locals():
+    with col_main:
         df = fetch_data(selecionado, tf)
-        poi_v = next(item['poi'] for item in st.session_state['top_10_setups'] if item['symbol'] == selecionado)
+        poi = setup['poi']
         last_v = df['close'].iloc[-1]
         
-        stop_v = poi_v * 1.0025    
-        entry_v = poi_v            
-        choch_v = entry_v - (abs(stop_v - entry_v) * 1.5) 
-        take_v = entry_v - (abs(stop_v - entry_v) * 4.0)
-
-        st.markdown("<div class='glass-panel'>", unsafe_allow_html=True)
+        # --- CÁLCULO DINÂMICO DE NÍVEIS SMC (Proporcional ao Preço) ---
+        distancia = poi * 0.002 
         
-        idx = len(df) - 1
-        x_pts = [idx, idx+4, idx+10, idx+15, idx+25] 
-        y_pts = [last_v, stop_v * 0.999, choch_v, entry_v, take_v]
+        if setup['tipo'] == 'SUPPLY':
+            stop = poi + distancia
+            entry = poi
+            take = poi - (distancia * 5) # Alvo 5:1 conforme técnica
+            choch = poi - (distancia * 1.5)
+            cor_path = '#ff4b4b'
+            y_proj = [last_v, stop, choch, entry, take]
+        else:
+            stop = poi - distancia
+            entry = poi
+            take = poi + (distancia * 5)
+            choch = poi + (distancia * 1.5)
+            cor_path = '#00ffcc'
+            y_proj = [last_v, stop, choch, entry, take]
 
-        fig = go.Figure()
-        fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], opacity=0.2))
-
-        fig.add_trace(go.Scatter(x=x_pts[:4], y=y_pts[:4], mode='lines+markers',
-                                 line=dict(color='#ff4b4b', width=3, dash='dot'),
-                                 marker=dict(size=8, color='#ff4b4b', symbol='circle-open')))
+        dates = df['ts_display'].tolist()
+        future_dates = [f"F{i}" for i in range(1, 61)]
+        full_dates = dates + future_dates
+        candlestick_data = df[['open', 'close', 'low', 'high']].values.tolist()
         
-        fig.add_trace(go.Scatter(x=x_pts[3:], y=y_pts[3:], mode='lines',
-                                 line=dict(color='#00ffcc', width=10)))
+        # Sincroniza o início do desenho com o fim dos candles
+        path_data = [None] * (len(dates) - 1)
+        path_data.extend(y_proj)
 
-        for val, txt, clr in [(stop_v, "STOP LOSS", "#ff4b4b"), 
-                               (entry_v, "ENTRY", "white"), 
-                               (take_v, "TAKE PROFIT", "#00ffcc")]:
-            fig.add_shape(type="line", x0=idx, y0=val, x1=idx+30, y1=val, line=dict(color=clr, width=1, dash="dash"))
-            fig.add_annotation(x=idx+30, y=val, text=f"<b>{txt}</b>", showarrow=False, font=dict(color=clr), xanchor="left")
+        options = {
+            "backgroundColor": "#000000",
+            "xAxis": {"type": "category", "data": full_dates, "scale": True, "axisLine": {"lineStyle": {"color": "#333"}}, "splitLine": {"show": False}},
+            "yAxis": {
+                "scale": True, 
+                "position": "right", 
+                "axisLine": {"show": False}, 
+                "splitLine": {"lineStyle": {"color": "#111"}},
+                "axisLabel": {"color": "#888", "fontSize": 10},
+                "min": "dataMin", "max": "dataMax"
+            },
+            "dataZoom": [{"type": "inside", "start": 90, "end": 100}, {"show": False}],
+            "series": [
+                {
+                    "type": "candlestick",
+                    "data": candlestick_data,
+                    "itemStyle": {"color": "#00ffcc", "color0": "#ff4b4b", "borderColor": "#00ffcc", "borderColor0": "#ff4b4b"},
+                    "markLine": {
+                        "symbol": ["none", "none"],
+                        "precision": 6,
+                        "label": {"position": "end", "color": "inherit", "fontWeight": "bold", "fontFamily": "Orbitron", "fontSize": 10},
+                        "data": [
+                            {"yAxis": poi, "lineStyle": {"color": "yellow", "type": "solid", "width": 2}, "label": {"formatter": "POI"}},
+                            {"yAxis": stop, "lineStyle": {"color": "#ff4b4b", "type": "dashed"}, "label": {"formatter": "STOP"}},
+                            {"yAxis": entry, "lineStyle": {"color": "#ffffff", "type": "dashed"}, "label": {"formatter": "ENTRY"}},
+                            {"yAxis": take, "lineStyle": {"color": "#00ffcc", "type": "dashed"}, "label": {"formatter": "TAKE"}}
+                        ]
+                    }
+                },
+                {
+                    "name": "SMC Path",
+                    "type": "line",
+                    "data": path_data,
+                    "smooth": False,
+                    "lineStyle": {"color": cor_path, "width": 2, "type": "dotted"},
+                    "symbol": "circle", "symbolSize": 6, "itemStyle": {"color": cor_path}
+                }
+            ]
+        }
 
-        fig.update_layout(template="plotly_dark", height=600, paper_bgcolor='black', plot_bgcolor='black', xaxis_visible=False, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st_echarts(options=options, height="600px")
 
+        # --- TABELA DE DADOS INFERIOR ---
         st.markdown(f"""
-        <div class='info-box'>
-            <p style='color:#00ffcc; margin:0;'><b>ESTRATÉGIA: {selecionado} - BEARISH POI + CHoCH PROFUNDO</b></p>
-            <table style='width:100%; color:white;'>
-                <tr>
-                    <td><b>ENTRADA:</b> {entry_v:.4f}</td>
-                    <td><b>STOP:</b> {stop_v:.4f}</td>
-                    <td><b>ALVO:</b> {take_v:.4f}</td>
-                </tr>
-            </table>
+        <div class="info-table-container">
+            <div style="display: flex; align-items: center; justify-content: space-around;">
+                <div class="info-item" style="border:none">
+                    <div class="info-label">ASSET</div>
+                    <div class="info-value" style="color:#00ffcc">{selecionado}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">ENTRY POINT</div>
+                    <div class="info-value">{entry:.6f}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">STOP LOSS</div>
+                    <div class="info-value" style="color:#ff4b4b">{stop:.6f}</div>
+                </div>
+                <div class="info-item" style="border:none">
+                    <div class="info-label">TAKE PROFIT</div>
+                    <div class="info-value" style="color:#00ffcc">{take:.6f}</div>
+                </div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
