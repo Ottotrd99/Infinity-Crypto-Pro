@@ -3,3 +3,5 @@ ccxt
 pandas
 plotly
 numpy
+ccxt
+streamlit-echarts
