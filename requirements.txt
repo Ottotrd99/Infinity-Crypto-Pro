@@ -5,3 +5,7 @@ plotly
 numpy
 ccxt
 streamlit-echarts
+streamlit
+ccxt
+pandas
+streamlit-echarts
