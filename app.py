@@ -84,7 +84,7 @@ col_side, col_main = st.columns([1, 5])
 
 with col_side:
     st.markdown("<div class='glass-panel'>", unsafe_allow_html=True)
-    tf = st.selectbox("TEMPO:", ["1m", "5m", "15m"], index=1)
+    tf = st.selectbox("TEMPO:", ["1m", "5m", "15m", "1h], index=1)
     if st.button("⚡ SCANNER"):
         st.session_state['setups'] = buscar_setups()
 
